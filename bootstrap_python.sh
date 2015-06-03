@@ -1,4 +1,15 @@
-INSTALL_ROOT="$HOME/Python"
+#!/bin/bash
+
+set -euo pipefail
+IFS=$'\n\t'
+
+die() { echo "$*" >&2; exit 1; }
+
+TEMP="$(mktemp -d -t python.XXXXXX)" || die "failed to make tmpdir"
+cleanup() { [[ -n "${TEMP:-}" ]] && rm -rf "${TEMP}"; }
+trap cleanup EXIT
+
+INSTALL_ROOT="${INSTALL_ROOT:-$HOME/Python}"
 CPY=$INSTALL_ROOT/CPython
 PYPY=$INSTALL_ROOT/PyPy
 
@@ -8,11 +19,13 @@ READLINE_VERNAME="${READLINE_FILENAME%%.tar.gz}"
 
 READLINE_PREFIX="$INSTALL_ROOT/$READLINE_VERNAME"
 
-SANDBOX=$(mktemp -d /tmp/python.XXXXXX)
+SANDBOX="$TEMP/sandbox"
 
-CURL='wget --no-check-certificate'
+sane_curl() {
+  wget --no-check-certificate "$@"
+}
 
-mkdir -p $INSTALL_ROOT "$READLINE_PREFIX"
+mkdir -p "$SANDBOX" "$INSTALL_ROOT" "$READLINE_PREFIX"
 
 PYTHON_2_6=2.6.9
 PYTHON_2_7=2.7.9
@@ -22,22 +35,31 @@ PY_PY=2.5.0
 SETUPTOOLS=12.0.5
 PIP=6.0.8
 
+case "$(uname -s)" in
+Linux)
+  READLINE_FLAGS='--enable-shared'
+;;
+Darwin)
+  READLINE_FLAGS='--disable-shared --enable-static'
+;;
+esac
+
 pushd $SANDBOX
-  wget "$READLINE_URL"
+  sane_curl "$READLINE_URL"
   tar xzf "$READLINE_FILENAME"
   pushd readline-6.2
-    ./configure --disable-shared --enable-static --prefix="$READLINE_PREFIX"
+    ./configure $READLINE_FLAGS --prefix="$READLINE_PREFIX"
     make -j3 && make install
   popd
   rm -rf readline-6.2.tar.gz readline-6.2
 
   # install all major cpython interpreter versions
   for version in $PYTHON_2_6 $PYTHON_2_7 $PYTHON_3_3 $PYTHON_3_4; do
-    $CURL http://python.org/ftp/python/$version/Python-$version.tgz
+    sane_curl http://python.org/ftp/python/$version/Python-$version.tgz
     tar xzf Python-$version.tgz
     pushd Python-$version
       LDFLAGS=-L"$READLINE_PREFIX/lib" CFLAGS=-I"$READLINE_PREFIX/include" \
-        ./configure --prefix=$INSTALL_ROOT/CPython-$version && make -j5 && make install
+        ./configure --with-readline --prefix=$INSTALL_ROOT/CPython-$version && make -j5 && make install
     popd
     rm -f Python-$version.tgz
   done
@@ -45,15 +67,15 @@ pushd $SANDBOX
   # install pypy
   for pypy_version in $PY_PY-osx64; do
     pushd $INSTALL_ROOT
-      $CURL https://bitbucket.org/pypy/pypy/downloads/pypy-$pypy_version.tar.bz2
+      sane_curl https://bitbucket.org/pypy/pypy/downloads/pypy-$pypy_version.tar.bz2
       bzip2 -cd pypy-$pypy_version.tar.bz2 | tar -xf -
       rm -f pypy-$pypy_version.tar.bz2
       mv pypy-$pypy_version PyPy-$PY_PY
     popd
   done
 
-  $CURL https://pypi.python.org/packages/source/s/setuptools/setuptools-$SETUPTOOLS.tar.gz
-  $CURL http://pypi.python.org/packages/source/p/pip/pip-$PIP.tar.gz
+  sane_curl https://pypi.python.org/packages/source/s/setuptools/setuptools-$SETUPTOOLS.tar.gz
+  sane_curl http://pypi.python.org/packages/source/p/pip/pip-$PIP.tar.gz
 
   for interpreter in $CPY-$PYTHON_2_6/bin/python2.6 \
                      $CPY-$PYTHON_2_7/bin/python2.7 \
@@ -74,7 +96,11 @@ pushd $SANDBOX
 popd
 
 METAPATH='$PATH'
+READLINE_RE="/$READLINE_VERNAME/"
 for path in $(ls $INSTALL_ROOT | sort -r); do
+
+  [[ "$path" =~ $READLINE_RE ]] && continue
+
   METAPATH=$INSTALL_ROOT/$path/bin:$METAPATH
 done
 
