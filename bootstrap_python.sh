@@ -44,6 +44,10 @@ Darwin)
 ;;
 esac
 
+is_linux() {
+  [[ "$(uname -s)" == "Linux" ]]
+}
+
 pushd $SANDBOX
   sane_curl "$READLINE_URL"
   tar xzf "$READLINE_FILENAME"
@@ -66,6 +70,7 @@ pushd $SANDBOX
 
   # install pypy
   for pypy_version in $PY_PY-osx64; do
+    is_linux && break
     pushd $INSTALL_ROOT
       sane_curl https://bitbucket.org/pypy/pypy/downloads/pypy-$pypy_version.tar.bz2
       bzip2 -cd pypy-$pypy_version.tar.bz2 | tar -xf -
@@ -82,6 +87,11 @@ pushd $SANDBOX
                      $CPY-$PYTHON_3_3/bin/python3.3 \
                      $CPY-$PYTHON_3_4/bin/python3.4 \
                      $PYPY-$PY_PY/bin/pypy; do
+
+    if [[ $(basename $interpreter) == 'pypy' ]] && is_linux; then
+      continue
+    fi
+
     # install distribute && pip
     for base in setuptools-$SETUPTOOLS pip-$PIP; do
       tar xzf $base.tar.gz
