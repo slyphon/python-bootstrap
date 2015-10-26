@@ -1,15 +1,22 @@
-set -e
+#!/bin/bash
+set -eu
 set -o pipefail
 
-INSTALL_ROOT=$HOME/Python
+INSTALL_ROOT="${INSTALL_ROOT:-$HOME/Python}"
 CPY=$INSTALL_ROOT/CPython
 PYPY=$INSTALL_ROOT/PyPy
+READLINE_PREFIX="${INSTALL_ROOT}/readline-6.2"
 
-SANDBOX=$(mktemp -d /tmp/python.XXXXXX)
+die() { echo "fatal: $@" >&2; exit 1; }
+
+SANDBOX="$(mktemp -d /tmp/python.XXXXXX)" || die "failed to create sandbox"
+
+cleanup() { [[ -n "${SANDBOX:-}" ]] && rm -rf "${SANDBOX}"; }
+trap cleanup EXIT
 
 CURL='wget --no-check-certificate'
 
-mkdir -p $INSTALL_ROOT
+mkdir -p "$INSTALL_ROOT"
 
 PYTHON_2_6=2.6.9
 PYTHON_2_7=2.7.10
@@ -20,10 +27,10 @@ SETUPTOOLS=18.1
 PIP=7.1.0
 
 pushd $SANDBOX
-  wget ftp://ftp.cwru.edu/pub/bash/readline-6.2.tar.gz
+  wget http://mirrors.kernel.org/gnu/readline/readline-6.2.tar.gz
   tar xzf readline-6.2.tar.gz
   pushd readline-6.2
-    ./configure --disable-shared --enable-static --prefix=$SANDBOX/readline && \
+    ./configure --disable-shared --enable-static --prefix="$READLINE_PREFIX" && \
     make -j3 && make install
   popd
   rm -rf readline-6.2.tar.gz readline-6.2
@@ -33,8 +40,8 @@ pushd $SANDBOX
     $CURL http://python.org/ftp/python/$version/Python-$version.tgz
     tar xzf Python-$version.tgz
     pushd Python-$version
-      LDFLAGS=-L$SANDBOX/readline/lib CFLAGS=-I$SANDBOX/readline/include \
-        ./configure --prefix=$INSTALL_ROOT/CPython-$version && make -j5 && make install
+      LDFLAGS=-L"$READLINE_PREFIX/lib" CFLAGS=-I"$READLINE_PREFIX/include" \
+        ./configure --prefix="$INSTALL_ROOT/CPython-$version" && make -j5 && make install
     popd
     rm -f Python-$version.tgz
   done
@@ -78,4 +85,3 @@ done
 echo Add the following line to the end of your .bashrc:
 echo PATH=$METAPATH
 
-rm -rf $SANDBOX
